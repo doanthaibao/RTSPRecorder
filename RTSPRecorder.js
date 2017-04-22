@@ -1,8 +1,8 @@
 /**
  * Created by Shoom on 02.12.15.
  */
-
-(function(){
+'use strict';
+(function() {
     var
         fs = require('fs'),
         child_process = require('child_process'),
@@ -14,10 +14,9 @@
      * @param date {Date|undefined}
      * @returns {string}
      */
-    function dateString(date){
+    function dateString(date) {
         var dt = date || (new Date());
-        return [dt.getDate(), dt.getMonth(), dt.getFullYear()].join('-')+' '
-            +[dt.getHours(), dt.getMinutes(), dt.getSeconds()].join('-');
+        return [dt.getDate(), dt.getMonth(), dt.getFullYear()].join('-') + ' ' + [dt.getHours(), dt.getMinutes(), dt.getSeconds()].join('-');
     }
 
     /**
@@ -26,35 +25,35 @@
      * @param next {function} callback
      */
     function removeFolder(location, next) {
-        fs.readdir(location, function (err, files) {
-            async.each(files, function (file, cb) {
+        fs.readdir(location, function(err, files) {
+            async.each(files, function(file, cb) {
                 file = location + '/' + file;
-                fs.stat(file, function (err, stat) {
+                fs.stat(file, function(err, stat) {
                     if (err) {
                         return cb(err);
                     }
                     if (stat.isDirectory()) {
                         removeFolder(file, cb);
                     } else {
-                        fs.unlink(file, function (err) {
+                        fs.unlink(file, function(err) {
                             if (err) {
                                 return cb(err);
                             }
                             return cb();
-                        })
+                        });
                     }
-                })
-            }, function (err) {
-                if (err) return next(err);
-                fs.rmdir(location, function (err) {
+                });
+            }, function(err) {
+                if (err) {return next(err);}
+                fs.rmdir(location, function(err) {
                     return next(err);
-                })
-            })
-        })
+                });
+            });
+        });
     }
 
     var protocol = 'rtsp://';
-    var urlRegex =  new RegExp(protocol+"([\\w\\d]+):([\\w\\d]+)@");
+    var urlRegex = new RegExp(protocol + "([\\w\\d]+):([\\w\\d]+)@");
 
     /**
      * Rtsp stream recorder and streamer
@@ -62,7 +61,7 @@
      * @param name {string} name if recorder
      * @constructor
      */
-    var Recorder = function(params, name){
+    var Recorder = function(params, name) {
         this.name = name || '';
         //url to stream
         this.url = '';
@@ -74,11 +73,13 @@
         this.folder = '/';
 
         params = params || {};
-        for(var v in params){
-            if(params.hasOwnProperty(v)) this[v] = params[v];
+        for (var v in params) {
+            if (params.hasOwnProperty(v)) {
+                this[v] = params[v];
+            }
         }
 
-        if(!this.username){
+        if (!this.username) {
             var regres = urlRegex.exec(this.url);
             this.url = this.url.replace(regres[0], '');
             this.username = regres[1];
@@ -90,9 +91,9 @@
         /**
          * Logging
          */
-        this.log = function(){
-            for(var i in arguments){
-                arguments[i] = dateString()+':: '+arguments[i].toString();
+        this.log = function() {
+            for (var i in arguments) {
+                arguments[i] = dateString() + ':: ' + arguments[i].toString();
             }
             console.log.apply(this, arguments);
 
@@ -103,29 +104,32 @@
          * Path to records folder
          * @returns {string}
          */
-        this.recordsPath = function(){
-            return this.folder+(this.name?(this.name+'/'):'');
+        this.recordsPath = function() {
+            return this.folder + (this.name ? (this.name + '/') : '');
         };
 
-        this.ffmpeg = function(filename){
-            return child_process.spawn("ffmpeg",
-                ["-i", protocol+this.username+':'+this.password+'@'+this.url, '-an', '-f', 'mpeg1video', '-b:v', '128k', '-r', '25', filename],
-                {detached: false}
-            );
+        this.ffmpeg = function(filename) {
+            return child_process.spawn("ffmpeg", ["-i", protocol + this.username + ':' + this.password + '@' + this.url, '-an', '-f', 'mpeg1video', '-b:v', '128k', '-r', '25', filename], {
+                detached: false
+            });
         };
 
         /**
          * Record stream to file
          */
-        this.recordStream = function(){
-            if(this.timer) clearTimeout(this.timer);
+        this.recordStream = function() {
+            if (this.timer) {
+                clearTimeout(this.timer);
+            }
 
-            if(this.writeStream && this.writeStream.binded) return false;
+            if (this.writeStream && this.writeStream.binded) {
+                return false;
+            }
 
-            if(this.writeStream && this.writeStream.connected){
+            if (this.writeStream && this.writeStream.connected) {
                 this.writeStream.binded = true;
 
-                this.writeStream.once('exit', function(){
+                this.writeStream.once('exit', function() {
                     self.recordStream();
                 });
 
@@ -134,21 +138,21 @@
                 return false;
             }
 
-            this.clearDir(function(){
-                var filename = this.recordsPath()+dateString()+'.mp4';
+            this.clearDir(function() {
+                var filename = this.recordsPath() + dateString() + '.mp4';
 
                 this.writeStream = null;
                 this.writeStream = this.ffmpeg(filename);
 
-                this.writeStream.once('exit', function(){
+                this.writeStream.once('exit', function() {
                     self.recordStream();
                 });
 
-                this.timer = setTimeout(function(){
+                this.timer = setTimeout(function() {
                     self.writeStream.kill();
-                }, this.timeLimit*1000);
+                }, this.timeLimit * 1000);
 
-                this.log("Start record "+filename);
+                this.log("Start record " + filename);
             });
 
             return this;
@@ -158,29 +162,29 @@
          * Clear movies directory
          * @param cb {function} callback
          */
-        this.clearDir = function(cb){
+        this.clearDir = function(cb) {
             var called = false;
 
-            function ok(){
+            function ok() {
                 cb.apply(self);
             }
 
-            du(this.folder, function (err, size) {
-                if(size/1024/1024 > self.maxDirSize){
-                    try{
-                        removeFolder(self.folder, function(){
-                            fs.mkdir(self.folder, function(){
-                                if(!called){
+            du(this.folder, function(err, size) {
+                if (size / 1024 / 1024 > self.maxDirSize) {
+                    try {
+                        removeFolder(self.folder, function() {
+                            fs.mkdir(self.folder, function() {
+                                if (!called) {
                                     ok();
                                     called = true;
                                 }
                             });
                         });
-                    }catch (err){
+                    } catch (err) {
                         self.log(err);
                     }
-                }else{
-                    if(!called){
+                } else {
+                    if (!called) {
                         ok();
                         called = true;
                     }
@@ -195,16 +199,16 @@
          * @see reconnect
          * @see recordStream
          */
-        this.initialize = function(){
-            if(!this.url){
+        this.initialize = function() {
+            if (!this.url) {
                 return this.log('URL os required.');
             }
             //Create records directory if not exist
-            try{
-                if(!fs.lstatSync(this.recordsPath()).isDirectory()){
+            try {
+                if (!fs.lstatSync(this.recordsPath()).isDirectory()) {
                     fs.mkdirSync(this.recordsPath());
                 }
-            }catch (e){
+            } catch (e) {
                 fs.mkdirSync(this.recordsPath());
             }
 
