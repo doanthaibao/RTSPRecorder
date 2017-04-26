@@ -1,13 +1,19 @@
 /**
  * Created by Shoom on 02.12.15.
  */
-'use strict';
+
 (function() {
     var
         fs = require('fs'),
+        util = require('util'),
+        events = require('events'),
         child_process = require('child_process'),
         du = require('du'),
-        async = require('async');
+        async = require('async'),
+        ws = require('ws');
+
+    //For websocket stream
+    var STREAM_MAGIC_BYTES = 'jsmp';
 
     /**
      * Date to string
@@ -40,119 +46,135 @@
                                 return cb(err);
                             }
                             return cb();
-                        });
+                        })
                     }
-                });
+                })
             }, function(err) {
-                if (err) {return next(err);}
+                if (err) return next(err);
                 fs.rmdir(location, function(err) {
                     return next(err);
-                });
-            });
-        });
+                })
+            })
+        })
     }
-
-    var protocol = 'rtsp://';
-    var urlRegex = new RegExp(protocol + "([\\w\\d]+):([\\w\\d]+)@");
 
     /**
      * Rtsp stream recorder and streamer
      * @param params {object} parameters
-     * @param name {string} name if recorder
      * @constructor
      */
-    var Recorder = function(params, name) {
-        this.name = name || '';
+    var Recorder = function(params) {
         //url to stream
         this.url = '';
+        //stream for frite video to file
+        this.writeStream = null;
+        //stream to read video from ffmpeg
+        this.readStream = null;
+        //read stream is started
+        this._readStarted = false;
+        //count of max reconnect tryes
+        this.maxTryReconnect = 5;
         //max size of video directory (MB), if size more than this size dir will be cleared
         this.maxDirSize = 100;
-        //limit to record one video file (sec)
-        this.timeLimit = 600;
-        //folder of videos
-        this.folder = '/';
+        //width of movie clip
+        this.movieWidth = 0;
+        //height of movie clip
+        this.movieHeight = 0;
+        //limit to record one video file
+        this.timeLimit = 60 * 10;
 
         params = params || {};
         for (var v in params) {
-            if (params.hasOwnProperty(v)) {
-                this[v] = params[v];
-            }
-        }
-
-        if (!this.username) {
-            var regres = urlRegex.exec(this.url);
-            this.url = this.url.replace(regres[0], '');
-            this.username = regres[1];
-            this.password = regres[2];
+            if (params.hasOwnProperty(v)) this[v] = params[v];
         }
 
         var self = this;
 
         /**
-         * Logging
+         * Connect to rtsp stream with ffmpeg and start record
          */
-        this.log = function() {
-            for (var i in arguments) {
-                arguments[i] = dateString() + ':: ' + arguments[i].toString();
-            }
-            console.log.apply(this, arguments);
+        this.connect = function() {
+            this.readStream = child_process.spawn("ffmpeg", ["-rtsp_transport", "tcp", "-i", this.url, "-vf", "drawtext=fontfile=/Windows/Fonts/Arial.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30", '-f', 'mpeg1video', '-b:v', '800k', '-r', '30', '-'], {
+                detached: false
+            });
+
+            this.readStream.stdout.on('data', function(chunk) {
+                if (!self._readStarted) {
+                    self._readStarted = true;
+                    self.emit('readStart');
+                }
+                self.emit('camData', chunk);
+            });
+
+            this.readStream.stderr.on('data', function(data) {
+                if (self.movieWidth) return;
+
+                data = data.toString();
+                if (data && data.indexOf('Stream #0') !== -1) {
+
+                    var size = data.match(/\d+x\d+,/);
+
+                    if (size != null) {
+                        size[0] = size[0].substr(0, size[0].length - 1);
+                        size = size[0].split('x');
+
+                        console.log('Movie size parsed: ' + size);
+
+                        self.movieWidth = parseInt(size[0], 10);
+                        self.movieHeight = parseInt(size[1], 10);
+
+                        self.emit('haveMovieSize');
+                    }
+                }
+            });
+
+            this.readStream.stdout.on('close', function() {
+                self._readStarted = false;
+                self.reconnect();
+            });
 
             return this;
         };
 
         /**
-         * Path to records folder
-         * @returns {string}
+         * Try reconnect to video stream
+         * @see connect
          */
-        this.recordsPath = function() {
-            return this.folder + (this.name ? (this.name + '/') : '');
-        };
+        this.reconnect = function() {
+            if (this.maxTryReconnect > 0) {
+                console.log('Try connect to ' + this.url);
+                this.maxTryReconnect--;
+                try {
+                    this.connect();
+                } catch (e) {
 
-        this.ffmpeg = function(filename) {
-            return child_process.spawn("ffmpeg", ["-i", protocol + this.username + ':' + this.password + '@' + this.url, '-an', '-f', 'mpeg1video', '-b:v', '128k', '-r', '25', filename], {
-                detached: false
-            });
+                }
+            } else {
+                this.emit('lostConnection');
+                console.log('Connection lost \r\n');
+            }
+
+            return this;
         };
 
         /**
          * Record stream to file
          */
         this.recordStream = function() {
-            if (this.timer) {
-                clearTimeout(this.timer);
-            }
-
-            if (this.writeStream && this.writeStream.binded) {
-                return false;
-            }
-
-            if (this.writeStream && this.writeStream.connected) {
-                this.writeStream.binded = true;
-
-                this.writeStream.once('exit', function() {
-                    self.recordStream();
-                });
-
-                this.writeStream.kill();
-
-                return false;
-            }
-
             this.clearDir(function() {
-                var filename = this.recordsPath() + dateString() + '.mp4';
+                var filename = this.folder + this.prefix + dateString() + '.mp4';
+                this.writeStream = fs.createWriteStream(filename);
+                this.readStream.stdout.pipe(this.writeStream);
 
-                this.writeStream = null;
-                this.writeStream = this.ffmpeg(filename);
-
-                this.writeStream.once('exit', function() {
+                this.writeStream.on('finish', function() {
                     self.recordStream();
                 });
 
-                this.timer = setTimeout(function() {
-                    self.writeStream.kill();
+                setTimeout(function() {
+                    self.writeStream.end();
                 }, this.timeLimit * 1000);
 
-                this.log("Start record " + filename);
+                console.log("Start record " + filename + "\r\n");
             });
 
             return this;
@@ -163,33 +185,71 @@
          * @param cb {function} callback
          */
         this.clearDir = function(cb) {
-            var called = false;
-
-            function ok() {
-                cb.apply(self);
-            }
-
             du(this.folder, function(err, size) {
                 if (size / 1024 / 1024 > self.maxDirSize) {
                     try {
                         removeFolder(self.folder, function() {
                             fs.mkdir(self.folder, function() {
-                                if (!called) {
-                                    ok();
-                                    called = true;
-                                }
+                                cb.apply(self);
                             });
                         });
                     } catch (err) {
-                        self.log(err);
+                        console.log(err);
                     }
                 } else {
-                    if (!called) {
-                        ok();
-                        called = true;
-                    }
+                    cb.apply(self);
                 }
             });
+
+            return this;
+        };
+
+        /**
+         * Start stream video to websocket
+         * @param port {int} ws port
+         * @param cb {function} callback
+         */
+        this.wsStream = function(port, cb) {
+            function start() {
+                this.wsServer = new ws.Server({
+                    port: port
+                });
+
+                this.wsServer.on("connection", function(socket) {
+                    var streamHeader = new Buffer(8);
+                    streamHeader.write(STREAM_MAGIC_BYTES);
+                    streamHeader.writeUInt16BE(self.movieWidth, 4);
+                    streamHeader.writeUInt16BE(self.movieHeight, 6);
+                    socket.send(streamHeader, {
+                        binary: true
+                    });
+                });
+
+                this.wsServer.broadcast = function(data, opts) {
+                    var i, _results;
+                    _results = [];
+                    for (i in this.clients) {
+                        if (this.clients[i].readyState === 1) {
+                            _results.push(this.clients[i].send(data, opts));
+                        }
+                    }
+                    return _results;
+                };
+
+                this.on('camData', function(data) {
+                    return self.wsServer.broadcast(data);
+                });
+
+                console.log('Websocket stream started to port: ' + port);
+
+                if (cb) cb();
+            }
+
+            if (this.movieWidth) {
+                start.apply(this);
+            } else {
+                this.once('haveMovieSize', start);
+            }
 
             return this;
         };
@@ -200,23 +260,18 @@
          * @see recordStream
          */
         this.initialize = function() {
-            if (!this.url) {
-                return this.log('URL os required.');
-            }
-            //Create records directory if not exist
-            try {
-                if (!fs.lstatSync(this.recordsPath()).isDirectory()) {
-                    fs.mkdirSync(this.recordsPath());
-                }
-            } catch (e) {
-                fs.mkdirSync(this.recordsPath());
-            }
+            this.on('readStart', function() {
+                self.maxTryReconnect = 5;
+                self.recordStream();
+            });
 
-            self.recordStream();
+            this.reconnect();
 
             return this;
         };
     };
+
+    util.inherits(Recorder, events.EventEmitter);
 
     module.exports = Recorder;
 })();
