@@ -11,6 +11,7 @@
         du = require('du'),
         async = require('async'),
         ws = require('ws');
+        const os = require('os');
 
     //For websocket stream
     var STREAM_MAGIC_BYTES = 'jsmp';
@@ -94,7 +95,14 @@
          * Connect to rtsp stream with ffmpeg and start record
          */
         this.connect = function() {
-            this.readStream = child_process.spawn("ffmpeg", ["-rtsp_transport", "tcp", "-i", this.url, "-vf", "drawtext=fontfile=/Windows/Fonts/Arial.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30", '-f', 'mpeg1video', '-b:v', '800k', '-r', '30', '-'], {
+            var fontOption = "";
+            if(os.type() === "Windows_NT"){
+                fontOption = "drawtext=fontfile=/Windows/Fonts/Arial.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
+            }
+            else{
+                fontOption= "drawtext=fontfile=/usr/share/fonts/truetype/droid/DroidSans.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
+            }
+            this.readStream = child_process.spawn("ffmpeg", ["-rtsp_transport", "tcp", "-i", this.url, "-vf", fontOption, '-f', 'mpeg1video', '-b:v', '800k', '-r', '30', '-'], {
                 detached: false
             });
 
