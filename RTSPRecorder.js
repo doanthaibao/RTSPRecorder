@@ -47,16 +47,16 @@
                                 return cb(err);
                             }
                             return cb();
-                        })
+                        });
                     }
-                })
+                });
             }, function(err) {
-                if (err) return next(err);
+                if (err) {return next(err);}
                 fs.rmdir(location, function(err) {
                     return next(err);
-                })
-            })
-        })
+                });
+            });
+        });
     }
 
     /**
@@ -86,7 +86,7 @@
 
         params = params || {};
         for (var v in params) {
-            if (params.hasOwnProperty(v)) this[v] = params[v];
+            if (params.hasOwnProperty(v)) {this[v] = params[v];}
         }
 
         var self = this;
@@ -115,7 +115,7 @@
             });
 
             this.readStream.stderr.on('data', function(data) {
-                if (self.movieWidth) return;
+                if (self.movieWidth) {return;}
 
                 data = data.toString();
                 if (data && data.indexOf('Stream #0') !== -1) {
@@ -155,7 +155,7 @@
                 try {
                     this.connect();
                 } catch (e) {
-
+                    console.log(e);
                 }
             } else {
                 this.emit('lostConnection');
@@ -250,7 +250,7 @@
 
                 console.log('Websocket stream started to port: ' + port);
 
-                if (cb) cb();
+                if (cb){cb();}
             }
 
             if (this.movieWidth) {
