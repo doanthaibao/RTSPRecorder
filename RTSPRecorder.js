@@ -16,7 +16,7 @@
 
     //For websocket stream
     var STREAM_MAGIC_BYTES = 'jsmp';
-    var META_DATA_FILE = "metadata.json";
+    var META_DATA_FILE = "metadata";
     var DEFAULT_METADATA_CONTENT = {
         "begin": "2017/05/02 00:00:00",
         "end": "2017/05/02 00:00:00",
@@ -93,6 +93,8 @@
         //limit to record one video file
         this.timeLimit = 60 * 10;
 
+        this.channel = 1;
+
         params = params || {};
         for (var v in params) {
             if (params.hasOwnProperty(v)) {
@@ -103,7 +105,7 @@
         var self = this;
 
         this.writeMetadataFile = function(beginTime, bEndPeriod) {
-            var metaDataFilePath = this.folder + META_DATA_FILE;
+            var metaDataFilePath = this.folder + META_DATA_FILE + this.channel + ".json";
             var oData = DEFAULT_METADATA_CONTENT;
             fs.open(metaDataFilePath, 'wx', (err, fd) => {
                 if (err) {
@@ -114,7 +116,7 @@
                     oData.begin = beginTime;
                     oData.end = beginTime;
                     var item = {
-                        "name": self.folder + beginTime + ".mp4",
+                        "name": self.folder + beginTime + "_" + self.channel + '.mp4',
                         "begin": beginTime,
                         "end": beginTime
                     };
@@ -131,19 +133,19 @@
         };
         this.updateMetadatFile = function(__metaDataFilePath, time, bEndPeriod) {
             var oData;
-            fs.readFile(__metaDataFilePath, 'utf8', function(err, fileData) {  
-                oData = JSON.parse(fileData); 
+            fs.readFile(__metaDataFilePath, 'utf8', function(err, fileData) {
+                oData = JSON.parse(fileData);
                 if (!bEndPeriod) {
                     //Write begin time 
                     var item = {
-                        "name": self.folder + time + ".mp4",
+                        "name": self.folder + time + "_" + self.channel + '.mp4',
                         "begin": time,
                         "end": time
                     };
                     oData.data.push(item);
 
                 } else {
-                    oData.data[oData.data.length -1].end = time; //update last time
+                    oData.data[oData.data.length - 1].end = time; //update last time
                     oData.end = time;
                 }
                 fs.writeFile(__metaDataFilePath, JSON.stringify(oData), () => {
@@ -233,7 +235,7 @@
         /**
          * Record stream to file
          */
-        this.recordStream = function(begintime) {
+        this.recordStream = function(beginTime) {
             //check folder exising or not
             if (!fs.existsSync(this.folder)) {
                 fs.mkdirSync(this.folder);
@@ -241,10 +243,10 @@
             }
             this.clearDir(function() {
                 var currentTime = datetime.create();
-                var begintime = currentTime.format('m-d-Y H-M-S');
-                self.writeMetadataFile(begintime);
+                var beginTime = currentTime.format('m-d-Y H-M-S');
+                self.writeMetadataFile(beginTime);
 
-                var filename = this.folder + begintime + '.mp4';
+                var filename = this.folder + beginTime + "_" + this.channel + '.mp4';
                 this.writeStream = fs.createWriteStream(filename);
                 this.readStream.stdout.pipe(this.writeStream);
 

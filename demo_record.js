@@ -7,8 +7,8 @@ var rec = new Recorder({
     movieWidth: 704, //width of video 
     movieHeight: 576, //height of video 
     maxDirSize: 1024*20, //max size of folder with videos (MB), when size of folder more than limit folder will be cleared 
-    maxTryReconnect: 15 //max count for reconnects 
- 
+    maxTryReconnect: 15, //max count for reconnects 
+    channel: 1
 });
  
 //start recording 
