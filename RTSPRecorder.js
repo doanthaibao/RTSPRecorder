@@ -11,10 +11,17 @@
         du = require('du'),
         async = require('async'),
         ws = require('ws');
-        const os = require('os');
+    const os = require('os');
+    var datetime = require('node-datetime');
 
     //For websocket stream
     var STREAM_MAGIC_BYTES = 'jsmp';
+    var META_DATA_FILE = "metadata.json";
+    var DEFAULT_METADATA_CONTENT = {
+        "begin": "2017/05/02 00:00:00",
+        "end": "2017/05/02 00:00:00",
+        "data": []
+    };
 
     /**
      * Date to string
@@ -51,7 +58,9 @@
                     }
                 });
             }, function(err) {
-                if (err) {return next(err);}
+                if (err) {
+                    return next(err);
+                }
                 fs.rmdir(location, function(err) {
                     return next(err);
                 });
@@ -86,21 +95,74 @@
 
         params = params || {};
         for (var v in params) {
-            if (params.hasOwnProperty(v)) {this[v] = params[v];}
+            if (params.hasOwnProperty(v)) {
+                this[v] = params[v];
+            }
         }
 
         var self = this;
 
+        this.writeMetadataFile = function(beginTime, bEndPeriod) {
+            var metaDataFilePath = this.folder + META_DATA_FILE;
+            var oData = DEFAULT_METADATA_CONTENT;
+            fs.open(metaDataFilePath, 'wx', (err, fd) => {
+                if (err) {
+                    if (err.code === 'EEXIST') {
+                        self.updateMetadatFile(metaDataFilePath, beginTime, bEndPeriod);
+                    }
+                } else {
+                    oData.begin = beginTime;
+                    oData.end = beginTime;
+                    var item = {
+                        "name": self.folder + beginTime + ".mp4",
+                        "begin": beginTime,
+                        "end": beginTime
+                    };
+                    oData.data.push(item);
+                    fs.appendFile(metaDataFilePath, JSON.stringify(oData), (err) => {
+                        if (err) {
+                            throw err;
+                        }
+                        fs.closeSync(fd);
+                        console.log("Created metadata file!");
+                    });
+                }
+            });
+        };
+        this.updateMetadatFile = function(__metaDataFilePath, time, bEndPeriod) {
+            var oData;
+            fs.readFile(__metaDataFilePath, 'utf8', function(err, fileData) {  
+                oData = JSON.parse(fileData); 
+                if (!bEndPeriod) {
+                    //Write begin time 
+                    var item = {
+                        "name": self.folder + time + ".mp4",
+                        "begin": time,
+                        "end": time
+                    };
+                    oData.data.push(item);
+
+                } else {
+                    oData.data[oData.data.length -1].end = time; //update last time
+                    oData.end = time;
+                }
+                fs.writeFile(__metaDataFilePath, JSON.stringify(oData), () => {
+                    if (err) {
+                        console.log("Write data to file failed");
+                    }
+                    console.log('The file has been saved!');
+                });
+            });
+        };
         /**
          * Connect to rtsp stream with ffmpeg and start record
          */
         this.connect = function() {
             var fontOption = "";
-            if(os.type() === "Windows_NT"){
+            if (os.type() === "Windows_NT") {
                 fontOption = "drawtext=fontfile=/Windows/Fonts/Arial.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
-            }
-            else{
-                fontOption= "drawtext=fontfile=/usr/share/fonts/truetype/droid/DroidSans.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
+            } else {
+                fontOption = "drawtext=fontfile=/usr/share/fonts/truetype/droid/DroidSans.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
             }
             this.readStream = child_process.spawn("ffmpeg", ["-rtsp_transport", "tcp", "-i", this.url, "-vf", fontOption, '-f', 'mpeg1video', '-b:v', '800k', '-r', '30', '-'], {
                 detached: false
@@ -110,12 +172,15 @@
                 if (!self._readStarted) {
                     self._readStarted = true;
                     self.emit('readStart');
+                    //start write metadata 
                 }
                 self.emit('camData', chunk);
             });
 
             this.readStream.stderr.on('data', function(data) {
-                if (self.movieWidth) {return;}
+                if (self.movieWidth) {
+                    return;
+                }
 
                 data = data.toString();
                 if (data && data.indexOf('Stream #0') !== -1) {
@@ -168,9 +233,18 @@
         /**
          * Record stream to file
          */
-        this.recordStream = function() {
+        this.recordStream = function(begintime) {
+            //check folder exising or not
+            if (!fs.existsSync(this.folder)) {
+                fs.mkdirSync(this.folder);
+                console.log("Created folder: " + this.folder + " successfully.");
+            }
             this.clearDir(function() {
-                var filename = this.folder + this.prefix + dateString() + '.mp4';
+                var currentTime = datetime.create();
+                var begintime = currentTime.format('m-d-Y H-M-S');
+                self.writeMetadataFile(begintime);
+
+                var filename = this.folder + begintime + '.mp4';
                 this.writeStream = fs.createWriteStream(filename);
                 this.readStream.stdout.pipe(this.writeStream);
 
@@ -179,7 +253,10 @@
                 });
 
                 setTimeout(function() {
+                    var currentTime = datetime.create();
+                    var endTime = currentTime.format('m-d-Y H:M:S');
                     self.writeStream.end();
+                    self.writeMetadataFile(endTime, true);
                 }, this.timeLimit * 1000);
 
                 console.log("Start record " + filename + "\r\n");
@@ -250,7 +327,9 @@
 
                 console.log('Websocket stream started to port: ' + port);
 
-                if (cb){cb();}
+                if (cb) {
+                    cb();
+                }
             }
 
             if (this.movieWidth) {
@@ -283,3 +362,4 @@
 
     module.exports = Recorder;
 })();
+//Connect => emit event 'readStart' => Record stream
