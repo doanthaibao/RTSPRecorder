@@ -13,6 +13,7 @@
         ws = require('ws');
     const os = require('os');
     var datetime = require('node-datetime');
+    var schedule = require('node-schedule');
 
     //For websocket stream
     var STREAM_MAGIC_BYTES = 'jsmp';
@@ -105,7 +106,7 @@
         var self = this;
 
         this.writeMetadataFile = function(beginTime, bEndPeriod) {
-            var metaDataFilePath = this.folder + META_DATA_FILE + this.channel + ".json";
+            var metaDataFilePath = this.folder + META_DATA_FILE + "_" + beginTime.substring(0, 10) + "_" + this.channel + ".json";
             var oData = DEFAULT_METADATA_CONTENT;
             fs.open(metaDataFilePath, 'wx', (err, fd) => {
                 if (err) {
@@ -352,6 +353,18 @@
             this.on('readStart', function() {
                 self.maxTryReconnect = 5;
                 self.recordStream();
+                //Split new metadate when go to new day
+                schedule.scheduleJob({
+                    hour: 0,
+                    minute: 0,
+                    second: 0
+                }, function() {
+                    console.log("New day comes");
+                    var currentTime = datetime.create();
+                    var endTime = currentTime.format('m-d-Y H:M:S');
+                    self.writeStream.end();
+                    self.writeMetadataFile(endTime, true);
+                });
             });
 
             this.reconnect();

@@ -2,7 +2,7 @@ var Recorder = require('./RTSPRecorder');
  
 var rec = new Recorder({
     url: 'rtsp://192.168.0.102/media/video1', //url to rtsp stream 
-    timeLimit: 20, //length of one video file (seconds) 
+    timeLimit: 120, //length of one video file (seconds) 
     folder: 'videos/', //path to video folder  
     movieWidth: 704, //width of video 
     movieHeight: 576, //height of video 
