@@ -135,6 +135,7 @@
         this.updateMetadatFile = function(__metaDataFilePath, time, bEndPeriod) {
             var oData;
             fs.readFile(__metaDataFilePath, 'utf8', function(err, fileData) {
+                console.log("File Data: "+fileData);
                 oData = JSON.parse(fileData);
                 if (!bEndPeriod) {
                     //Write begin time 
@@ -257,7 +258,7 @@
 
                 setTimeout(function() {
                     var currentTime = datetime.create();
-                    var endTime = currentTime.format('m-d-Y H:M:S');
+                    var endTime = currentTime.format('m-d-Y H-M-S');
                     self.writeStream.end();
                     self.writeMetadataFile(endTime, true);
                 }, this.timeLimit * 1000);
@@ -361,7 +362,7 @@
                 }, function() {
                     console.log("New day comes");
                     var currentTime = datetime.create();
-                    var endTime = currentTime.format('m-d-Y H:M:S');
+                    var endTime = currentTime.format('m-d-Y H-M-S');
                     self.writeStream.end();
                     self.writeMetadataFile(endTime, true);
                 });
