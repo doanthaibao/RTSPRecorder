@@ -96,6 +96,9 @@
 
         this.channel = 1;
 
+        this.body = null;
+
+        this.liveViewClient = [];
         params = params || {};
         for (var v in params) {
             if (params.hasOwnProperty(v)) {
@@ -103,7 +106,33 @@
             }
         }
 
+        this.addViewClients = function(aClient) {
+            this.liveViewClient = aClient;
+        };
+
         var self = this;
+        this.on("receive_data", function(chunk) {
+            //console.log("receive_data with length: " + chunk.length); 
+            var length = chunk.length;
+            var time = Date.now() / 1000;
+            var buf = Buffer.alloc(4 + 4);
+            buf.writeUInt32BE(length, 0);
+            buf.writeUInt32BE(time, 4);
+            buf = Buffer.concat([buf, chunk]);
+            if (self.body === null) {
+                self.body = buf;
+            } else {
+                self.body = Buffer.concat([self.body, buf]);
+            }
+            //data to live view
+            for (var i = 0; i < self.liveViewClient.length; i++) {
+                var client = self.liveViewClient[i].client;
+                var oInput = self.liveViewClient[i].input;
+                if (client.connected) {
+                    client.emit('data', chunk.toString('base64'), oInput);
+                }
+            }
+        });
 
         this.writeMetadataFile = function(beginTime, bEndPeriod) {
             var metaDataFilePath = this.folder + META_DATA_FILE + "_" + beginTime.substring(0, 10) + "_" + this.channel + ".json";
@@ -117,7 +146,7 @@
                     oData.begin = beginTime;
                     oData.end = beginTime;
                     var item = {
-                        "name": self.folder + beginTime + "_" + self.channel + '.mp4',
+                        "name": self.folder + beginTime + "_" + self.channel,
                         "begin": beginTime,
                         "end": beginTime
                     };
@@ -135,12 +164,12 @@
         this.updateMetadatFile = function(__metaDataFilePath, time, bEndPeriod) {
             var oData;
             fs.readFile(__metaDataFilePath, 'utf8', function(err, fileData) {
-                console.log("File Data: "+fileData);
+                console.log("File Data: " + fileData);
                 oData = JSON.parse(fileData);
                 if (!bEndPeriod) {
                     //Write begin time 
                     var item = {
-                        "name": self.folder + time + "_" + self.channel + '.mp4',
+                        "name": self.folder + time + "_" + self.channel,
                         "begin": time,
                         "end": time
                     };
@@ -168,9 +197,8 @@
             } else {
                 fontOption = "drawtext=fontfile=/usr/share/fonts/truetype/droid/DroidSans.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
             }
-            this.readStream = child_process.spawn("ffmpeg", ["-rtsp_transport", "tcp", "-i", this.url, "-vf", fontOption, '-f', 'mpeg1video', '-b:v', '800k', '-r', '30', '-'], {
-                detached: false
-            });
+            //"-vf", fontOption,
+            this.readStream = child_process.spawn("ffmpeg", ['-loglevel', 'quiet', "-i", this.url, '-f', 'image2', '-updatefirst', '1', "-"]);
 
             this.readStream.stdout.on('data', function(chunk) {
                 if (!self._readStarted) {
@@ -178,31 +206,12 @@
                     self.emit('readStart');
                     //start write metadata 
                 }
-                self.emit('camData', chunk);
+                self.emit('receive_data', chunk);
             });
 
+
             this.readStream.stderr.on('data', function(data) {
-                if (self.movieWidth) {
-                    return;
-                }
-
-                data = data.toString();
-                if (data && data.indexOf('Stream #0') !== -1) {
-
-                    var size = data.match(/\d+x\d+,/);
-
-                    if (size != null) {
-                        size[0] = size[0].substr(0, size[0].length - 1);
-                        size = size[0].split('x');
-
-                        console.log('Movie size parsed: ' + size);
-
-                        self.movieWidth = parseInt(size[0], 10);
-                        self.movieHeight = parseInt(size[1], 10);
-
-                        self.emit('haveMovieSize');
-                    }
-                }
+                console.log("error when read stream: " + data);
             });
 
             this.readStream.stdout.on('close', function() {
@@ -248,19 +257,21 @@
                 var beginTime = currentTime.format('m-d-Y H-M-S');
                 self.writeMetadataFile(beginTime);
 
-                var filename = this.folder + beginTime + "_" + this.channel + '.mp4';
+                var filename = this.folder + beginTime + "_" + this.channel;
                 this.writeStream = fs.createWriteStream(filename);
-                this.readStream.stdout.pipe(this.writeStream);
+                //this.readStream.stdout.pipe(this.writeStream);
 
                 this.writeStream.on('finish', function() {
-                    self.recordStream();
+                    self.recordStream(); //start record new file
                 });
 
                 setTimeout(function() {
                     var currentTime = datetime.create();
                     var endTime = currentTime.format('m-d-Y H-M-S');
+                    self.writeStream.write(self.body);
                     self.writeStream.end();
                     self.writeMetadataFile(endTime, true);
+                    this.body = null;
                 }, this.timeLimit * 1000);
 
                 console.log("Start record " + filename + "\r\n");
@@ -289,58 +300,6 @@
                     cb.apply(self);
                 }
             });
-
-            return this;
-        };
-
-        /**
-         * Start stream video to websocket
-         * @param port {int} ws port
-         * @param cb {function} callback
-         */
-        this.wsStream = function(port, cb) {
-            function start() {
-                this.wsServer = new ws.Server({
-                    port: port
-                });
-
-                this.wsServer.on("connection", function(socket) {
-                    var streamHeader = new Buffer(8);
-                    streamHeader.write(STREAM_MAGIC_BYTES);
-                    streamHeader.writeUInt16BE(self.movieWidth, 4);
-                    streamHeader.writeUInt16BE(self.movieHeight, 6);
-                    socket.send(streamHeader, {
-                        binary: true
-                    });
-                });
-
-                this.wsServer.broadcast = function(data, opts) {
-                    var i, _results;
-                    _results = [];
-                    for (i in this.clients) {
-                        if (this.clients[i].readyState === 1) {
-                            _results.push(this.clients[i].send(data, opts));
-                        }
-                    }
-                    return _results;
-                };
-
-                this.on('camData', function(data) {
-                    return self.wsServer.broadcast(data);
-                });
-
-                console.log('Websocket stream started to port: ' + port);
-
-                if (cb) {
-                    cb();
-                }
-            }
-
-            if (this.movieWidth) {
-                start.apply(this);
-            } else {
-                this.once('haveMovieSize', start);
-            }
 
             return this;
         };
