@@ -198,7 +198,9 @@
                 fontOption = "drawtext=fontfile=/usr/share/fonts/truetype/droid/DroidSans.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
             }
             //"-vf", fontOption,
-            this.readStream = child_process.spawn("ffmpeg", ['-loglevel', 'quiet', "-i", this.url, '-f', 'image2', '-updatefirst', '1', "-"]);
+            this.readStream = child_process.spawn("ffmpeg", ['-loglevel', 'quiet', "-i", this.url, "-r", 10, "-q:v", "3",
+                 '-f', 'image2', "-vf", fontOption, '-updatefirst', '1', "-"
+            ]);
 
             this.readStream.stdout.on('data', function(chunk) {
                 if (!self._readStarted) {
