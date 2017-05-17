@@ -98,7 +98,7 @@
 
         this.body = null;
 
-        this.liveViewClient = [];
+        this.liveViewClient = new Set();
         params = params || {};
         for (var v in params) {
             if (params.hasOwnProperty(v)) {
@@ -106,8 +106,8 @@
             }
         }
 
-        this.addViewClients = function(aClient) {
-            this.liveViewClient = aClient;
+        this.addLiveViewListener = function(oClient) {
+            this.liveViewClient.add(oClient);
         };
 
         var self = this;
@@ -125,13 +125,13 @@
                 self.body = Buffer.concat([self.body, buf]);
             }
             //data to live view
-            for (var i = 0; i < self.liveViewClient.length; i++) {
-                var client = self.liveViewClient[i].client;
-                var oInput = self.liveViewClient[i].input;
+            for (let item of this.liveViewClient) {
+                var client = item.client;
+                var oInput = item.input;
                 if (client.connected) {
                     client.emit('data', chunk.toString('base64'), oInput);
                 }
-            }
+            } 
         });
 
         this.writeMetadataFile = function(beginTime, bEndPeriod) {
@@ -199,7 +199,7 @@
             }
             //"-vf", fontOption,
             this.readStream = child_process.spawn("ffmpeg", ['-loglevel', 'quiet', "-i", this.url, "-r", 10, "-q:v", "3",
-                 '-f', 'image2', "-vf", fontOption, '-updatefirst', '1', "-"
+                '-f', 'image2', "-vf", fontOption, '-updatefirst', '1', "-"
             ]);
 
             this.readStream.stdout.on('data', function(chunk) {
