@@ -10,7 +10,8 @@
         child_process = require('child_process'),
         du = require('du'),
         async = require('async'),
-        ws = require('ws');
+        ws = require('ws'),
+        path = require('path');
     const os = require('os');
     var datetime = require('node-datetime');
     var schedule = require('node-schedule');
@@ -131,17 +132,16 @@
                 if (client.connected) {
                     client.emit('data', chunk.toString('base64'), oInput);
                 }
-            } 
+            }
         });
 
-        this.writeMetadataFile = function(beginTime, bEndPeriod) {
+        this.writeMetadataFile = function(beginTime, bEndPeriod, callback) {
+            //console.trace();
             var metaDataFilePath = this.folder + META_DATA_FILE + "_" + beginTime.substring(0, 10) + "_" + this.channel + ".json";
             var oData = DEFAULT_METADATA_CONTENT;
-            fs.open(metaDataFilePath, 'wx', (err, fd) => {
-                if (err) {
-                    if (err.code === 'EEXIST') {
-                        self.updateMetadatFile(metaDataFilePath, beginTime, bEndPeriod);
-                    }
+            fs.exists(metaDataFilePath, function(exists) {
+                if (exists) {
+                    self.updateMetadatFile(metaDataFilePath, beginTime, bEndPeriod, callback);
                 } else {
                     oData.begin = beginTime;
                     oData.end = beginTime;
@@ -155,19 +155,28 @@
                         if (err) {
                             throw err;
                         }
-                        fs.closeSync(fd);
+                        if (callback) {
+                            callback();
+                        }
                         console.log("Created metadata file!");
                     });
                 }
             });
+
+
         };
-        this.updateMetadatFile = function(__metaDataFilePath, time, bEndPeriod) {
+        this.updateMetadatFile = function(__metaDataFilePath, time, bEndPeriod, callback) {
             var oData;
             fs.readFile(__metaDataFilePath, 'utf8', function(err, fileData) {
                 console.log("File Data: " + fileData);
-                oData = JSON.parse(fileData);
+                try {
+                    oData = JSON.parse(fileData);
+                } catch (e) {
+                    console.log("  fs.readFile: Error at " + __metaDataFilePath);
+                    console.log(e.toString());
+                    return;
+                }
                 if (!bEndPeriod) {
-                    //Write begin time 
                     var item = {
                         "name": self.folder + time + "_" + self.channel,
                         "begin": time,
@@ -181,9 +190,12 @@
                 }
                 fs.writeFile(__metaDataFilePath, JSON.stringify(oData), () => {
                     if (err) {
-                        console.log("Write data to file failed");
+                        console.log("update data to file failed");
                     }
-                    console.log('The file has been saved!');
+                    console.log('Update data to file successfully!');
+                    if (callback) {
+                        callback();
+                    }
                 });
             });
         };
@@ -258,22 +270,22 @@
                 var currentTime = datetime.create();
                 var beginTime = currentTime.format('m-d-Y H-M-S');
                 self.writeMetadataFile(beginTime);
-
                 var filename = this.folder + beginTime + "_" + this.channel;
                 this.writeStream = fs.createWriteStream(filename);
-                //this.readStream.stdout.pipe(this.writeStream);
-
                 this.writeStream.on('finish', function() {
-                    self.recordStream(); //start record new file
+                    var currentTime = datetime.create();
+                    var endTime = currentTime.format('m-d-Y H-M-S');
+                    self.writeMetadataFile(endTime, true, function() {
+                        self.body = null;
+                        self.recordStream(); //start record new file
+                    });
                 });
 
                 setTimeout(function() {
-                    var currentTime = datetime.create();
-                    var endTime = currentTime.format('m-d-Y H-M-S');
-                    self.writeStream.write(self.body);
-                    self.writeStream.end();
-                    self.writeMetadataFile(endTime, true);
-                    this.body = null;
+                    //raise event finish
+                    self.writeStream.write(self.body, function() {
+                        self.writeStream.end();
+                    });
                 }, this.timeLimit * 1000);
 
                 console.log("Start record " + filename + "\r\n");
@@ -324,8 +336,10 @@
                     console.log("New day comes");
                     var currentTime = datetime.create();
                     var endTime = currentTime.format('m-d-Y H-M-S');
-                    self.writeStream.end();
-                    self.writeMetadataFile(endTime, true);
+                    self.writeStream.write(self.body, function() {
+                        self.writeStream.end();
+                    });
+
                 });
             });
 
