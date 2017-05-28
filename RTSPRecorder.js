@@ -13,6 +13,7 @@
         ws = require('ws'),
         path = require('path');
     const os = require('os');
+    const spawn = require('child_process').spawn;
     var datetime = require('node-datetime');
     var schedule = require('node-schedule');
 
@@ -80,8 +81,6 @@
         this.url = '';
         //stream for frite video to file
         this.writeStream = null;
-        //stream to read video from ffmpeg
-        this.readStream = null;
         //read stream is started
         this._readStarted = false;
         //count of max reconnect tryes
@@ -99,7 +98,6 @@
 
         this.body = null;
 
-        this.liveViewClient = new Set();
         params = params || {};
         for (var v in params) {
             if (params.hasOwnProperty(v)) {
@@ -107,46 +105,22 @@
             }
         }
 
-        this.addLiveViewListener = function(oClient) {
-            this.liveViewClient.add(oClient);
-        };
-
         var self = this;
-        this.on("receive_data", function(chunk) {
-            //console.log("receive_data with length: " + chunk.length); 
-            var length = chunk.length;
-            var time = Date.now() / 1000;
-            var buf = Buffer.alloc(4 + 4);
-            buf.writeUInt32BE(length, 0);
-            buf.writeUInt32BE(time, 4);
-            buf = Buffer.concat([buf, chunk]);
-            if (self.body === null) {
-                self.body = buf;
-            } else {
-                self.body = Buffer.concat([self.body, buf]);
-            }
-            //data to live view
-            for (let item of this.liveViewClient) {
-                var client = item.client;
-                var oInput = item.input;
-                if (client.connected) {
-                    client.emit('data', chunk.toString('base64'), oInput);
-                }
-            }
-        });
 
         this.writeMetadataFile = function(beginTime, bEndPeriod, callback) {
-            //console.trace();
             var metaDataFilePath = this.folder + META_DATA_FILE + "_" + beginTime.substring(0, 10) + "_" + this.channel + ".json";
-            var oData = DEFAULT_METADATA_CONTENT;
+
             fs.exists(metaDataFilePath, function(exists) {
                 if (exists) {
                     self.updateMetadatFile(metaDataFilePath, beginTime, bEndPeriod, callback);
                 } else {
+                    var oData = DEFAULT_METADATA_CONTENT;
+                    oData.data = [];
                     oData.begin = beginTime;
                     oData.end = beginTime;
+
                     var item = {
-                        "name": self.folder + beginTime + "_" + self.channel,
+                        "name": self.folder + beginTime + "_" + self.channel + ".mkv",
                         "begin": beginTime,
                         "end": beginTime
                     };
@@ -168,7 +142,7 @@
         this.updateMetadatFile = function(__metaDataFilePath, time, bEndPeriod, callback) {
             var oData;
             fs.readFile(__metaDataFilePath, 'utf8', function(err, fileData) {
-                console.log("File Data: " + fileData);
+                // console.log("File Data: " + fileData);
                 try {
                     oData = JSON.parse(fileData);
                 } catch (e) {
@@ -178,7 +152,7 @@
                 }
                 if (!bEndPeriod) {
                     var item = {
-                        "name": self.folder + time + "_" + self.channel,
+                        "name": self.folder + time + "_" + self.channel + ".mkv",
                         "begin": time,
                         "end": time
                     };
@@ -203,37 +177,39 @@
          * Connect to rtsp stream with ffmpeg and start record
          */
         this.connect = function() {
-            var fontOption = "";
-            if (os.type() === "Windows_NT") {
-                fontOption = "drawtext=fontfile=/Windows/Fonts/Arial.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
-            } else {
-                fontOption = "drawtext=fontfile=/usr/share/fonts/truetype/droid/DroidSans.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
-            }
-            //"-vf", fontOption,
-            this.readStream = child_process.spawn("ffmpeg", ['-loglevel', 'quiet', "-i", this.url, "-r", 10, "-q:v", "3",
-                '-f', 'image2', "-vf", fontOption, '-updatefirst', '1', "-"
-            ]);
+            // var fontOption = "";
+            // if (os.type() === "Windows_NT") {
+            //     fontOption = "drawtext=fontfile=/Windows/Fonts/Arial.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
+            // } else {
+            //     fontOption = "drawtext=fontfile=/usr/share/fonts/truetype/droid/DroidSans.ttf: text='%{localtime}': x=(w-tw)/2: y=100: fontcolor=white: box=1: boxcolor=0x00000000@1: fontsize=30";
+            // }
+            // //"-vf", fontOption,
+            // //"-rtsp_transport", "tcp",
+            // this.readStream = child_process.spawn("ffmpeg", ["-i", this.url, '-c:v', 'libx264', "-f", "matroska", "-"], {
+            //     detached: false
+            // });
+            // this.readStream.stdout.on('data', function(chunk) {
+            //     console.log("received data chunk");
+            //     if (!self._readStarted) {
+            //         self._readStarted = true;
+            //         self.emit('readStart');
+            //     } else if(self.writeStream) {
+            //         self.writeStream.write(chunk);
+            //     }
+            // });
 
-            this.readStream.stdout.on('data', function(chunk) {
-                if (!self._readStarted) {
-                    self._readStarted = true;
-                    self.emit('readStart');
-                    //start write metadata 
-                }
-                self.emit('receive_data', chunk);
-            });
 
+            // this.readStream.stderr.on('data', function(data) {
+            //     console.log("error when read stream: " + data);
+            // });
 
-            this.readStream.stderr.on('data', function(data) {
-                console.log("error when read stream: " + data);
-            });
+            // this.readStream.stdout.on('close', function() {
+            //     self._readStarted = false;
+            //     self.reconnect();
+            // });
 
-            this.readStream.stdout.on('close', function() {
-                self._readStarted = false;
-                self.reconnect();
-            });
-
-            return this;
+            // return this;
+            self.emit('readStart');
         };
 
         /**
@@ -270,22 +246,20 @@
                 var currentTime = datetime.create();
                 var beginTime = currentTime.format('m-d-Y H-M-S');
                 self.writeMetadataFile(beginTime);
-                var filename = this.folder + beginTime + "_" + this.channel;
-                this.writeStream = fs.createWriteStream(filename);
-                this.writeStream.on('finish', function() {
+                var filename = this.folder + beginTime + "_" + this.channel + ".mkv";
+                this.writeStream = spawn('ffmpeg', ['-i', this.url, '-c:v', 'libx264', "-preset", "slow", "-crf", "22", filename]);
+
+                this.writeStream.on('close', function() {
                     var currentTime = datetime.create();
                     var endTime = currentTime.format('m-d-Y H-M-S');
                     self.writeMetadataFile(endTime, true, function() {
-                        self.body = null;
                         self.recordStream(); //start record new file
                     });
                 });
 
                 setTimeout(function() {
                     //raise event finish
-                    self.writeStream.write(self.body, function() {
-                        self.writeStream.end();
-                    });
+                    self.writeStream.kill();
                 }, this.timeLimit * 1000);
 
                 console.log("Start record " + filename + "\r\n");
@@ -328,23 +302,18 @@
                 self.maxTryReconnect = 5;
                 self.recordStream();
                 //Split new metadate when go to new day
-                schedule.scheduleJob({
-                    hour: 0,
-                    minute: 0,
-                    second: 0
-                }, function() {
-                    console.log("New day comes");
-                    var currentTime = datetime.create();
-                    var endTime = currentTime.format('m-d-Y H-M-S');
-                    self.writeStream.write(self.body, function() {
-                        self.writeStream.end();
-                    });
-
-                });
+                // schedule.scheduleJob({
+                //     hour: 0,
+                //     minute: 0,
+                //     second: 0
+                // }, function() {
+                //     console.log("New day comes");
+                //     var currentTime = datetime.create();
+                //     var endTime = currentTime.format('m-d-Y H-M-S');
+                //     self.writeStream.end();
+                // });
             });
-
             this.reconnect();
-
             return this;
         };
     };
