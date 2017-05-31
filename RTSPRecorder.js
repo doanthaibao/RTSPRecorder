@@ -247,7 +247,7 @@
                 var beginTime = currentTime.format('m-d-Y H-M-S');
                 self.writeMetadataFile(beginTime);
                 var filename = this.folder + beginTime + "_" + this.channel + ".mkv";
-                this.writeStream = spawn('ffmpeg', ['-i', this.url, '-c:v', 'libx264', "-preset", "slow", "-crf", "22", filename]);
+                this.writeStream = spawn('ffmpeg', ['-i', this.url, '-c:v', 'libx264', "-c:a", "copy", "-movflags", "+faststart", "-err_detect", "ignore_err", filename]);
 
                 this.writeStream.on('close', function() {
                     var currentTime = datetime.create();
