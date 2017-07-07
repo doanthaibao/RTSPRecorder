@@ -250,11 +250,15 @@
                 this.writeStream = spawn('ffmpeg', ['-i', this.url, '-c:v', 'libx264', "-c:a", "copy", "-movflags", "+faststart", "-err_detect", "ignore_err", filename]);
 
                 this.writeStream.on('close', function() {
-                    var currentTime = datetime.create();
-                    var endTime = currentTime.format('m-d-Y H-M-S');
-                    self.writeMetadataFile(endTime, true, function() {
-                        self.recordStream(); //start record new file
-                    });
+                    if (!self.user_cancel) {
+                        var currentTime = datetime.create();
+                        var endTime = currentTime.format('m-d-Y H-M-S');
+                        self.writeMetadataFile(endTime, true, function() {
+                            self.recordStream(); //start record new file
+                        });
+                    } else {
+                        self.user_cancel = false;
+                    }
                 });
 
                 setTimeout(function() {
@@ -315,6 +319,13 @@
             });
             this.reconnect();
             return this;
+        };
+
+        this.stop = function() {
+            if (self.writeStream) {
+                self.user_cancel = true;
+                self.writeStream.kill();
+            }
         };
     };
 
