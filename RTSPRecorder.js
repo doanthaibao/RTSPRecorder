@@ -258,7 +258,9 @@
                                 self.writeMetadataFile(endTime, true, function() {
                                     self.recordStream(); //start record new file
                                 });
-                            } 
+                            } else {
+                                self.recordStream(); //start record new file
+                            }
                         });
 
                     } else {
