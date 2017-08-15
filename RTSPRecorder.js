@@ -253,9 +253,14 @@
                     if (!self.user_cancel) {
                         var currentTime = datetime.create();
                         var endTime = currentTime.format('m-d-Y H-M-S');
-                        self.writeMetadataFile(endTime, true, function() {
-                            self.recordStream(); //start record new file
+                        fs.access(filename, (err) => {
+                            if (!err) {
+                                self.writeMetadataFile(endTime, true, function() {
+                                    self.recordStream(); //start record new file
+                                });
+                            } 
                         });
+
                     } else {
                         self.user_cancel = false;
                     }
